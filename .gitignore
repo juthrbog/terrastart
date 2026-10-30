@@ -1,4 +1,4 @@
-# Terraform
+# OpenTofu (and Terraform) working files
 .terraform/
 terraform.tfstate.d
 terraform.tfstate

@@ -2,7 +2,7 @@
 #
 # terraform.yml calls this workflow once per tier and step, for example
 # "plan the develop tier" or "apply the prod tier". It is not meant to run on
-# its own. All the Terraform logic is in .ci/scripts/tf.sh; this file only
+# its own. All the OpenTofu logic is in .ci/scripts/tf.sh; this file only
 # sets up the runner, gets AWS credentials, and moves plan files between jobs.
 #
 # Each deployment in the tier gets its own job (a matrix job). The deployments
@@ -81,7 +81,7 @@ jobs:
     # in the concurrency queue does not count.
     timeout-minutes: ${{ inputs.timeout-minutes }}
     # One job at a time per deployment, across all runs of this repo. This
-    # stops two runs from changing the same Terraform state at once. A job
+    # stops two runs from changing the same state at once. A job
     # that is already running is never cancelled. Note that GitHub keeps only
     # one waiting job per group: if a third job joins the queue, the older
     # waiting job is cancelled. Pull request plans share this group, so they
@@ -104,7 +104,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Terraform and yq
+      - name: Install OpenTofu and yq
         uses: ./.github/actions/setup-tools
 
       # Trade the GitHub OIDC token for credentials of the deployment's role
@@ -126,7 +126,7 @@ jobs:
       # apply and destroy use the plan file that the plan job of the same run
       # saved. They never make a new plan, so they change exactly what the
       # plan showed. The artifact also holds the provider lock file from the
-      # plan. tf.sh puts it back before `terraform init`, so init installs the
+      # plan. tf.sh puts it back before `tofu init`, so init installs the
       # same provider versions that made the plan.
       - name: Download the plan file
         if: inputs.command == 'apply' || inputs.command == 'destroy'

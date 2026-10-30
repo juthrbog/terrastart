@@ -4,29 +4,36 @@
 # live in one place for GitHub. Run actions/checkout first: GitHub reads a
 # local action from the checked-out repository.
 #
-# Keep these versions the same as the GitLab side: TERRAFORM_VERSION,
-# YQ_VERSION and the YQ_SHA256_* hashes in .ci/image/Dockerfile, and the
-# image tag in TERRAFORM_IMAGE in .ci/templates/tf-templates.yml. Then both
-# pipelines run the same tools. The Terraform version must also meet
-# required_version in deployments/versions.tf and terraform/versions.tf.
+# Keep these versions the same as the GitLab side: TOFU_VERSION, the
+# TOFU_SHA256_* hashes, YQ_VERSION and the YQ_SHA256_* hashes in
+# .ci/image/Dockerfile, and the image tag in TF_IMAGE in
+# .ci/templates/tf-templates.yml. Then both pipelines run the same tools. The
+# OpenTofu version must also meet required_version in deployments/versions.tf
+# and terraform/versions.tf.
 # README.md ("Change a tool version") lists every place to change.
 #
 # The runner already has the other tools that tf.sh uses: bash, jq, git,
 # shellcheck and the AWS CLI.
 
 name: Set up tools
-description: Install the pinned Terraform and yq versions for tf.sh.
+description: Install the pinned OpenTofu and yq versions for tf.sh.
 
 runs:
   using: composite
   steps:
-    - name: Install Terraform
-      uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+    - name: Install OpenTofu
+      uses: opentofu/setup-opentofu@a1320f892987e89d278cc92dc5adc984fb93aca4 # v2.0.2
       with:
-        terraform_version: 1.14.3
-        # The wrapper adds extra text to Terraform output. That text would
-        # end up in the plan summary that tf.sh writes, so turn it off.
-        terraform_wrapper: false
+        tofu_version: 1.13.1
+        # The wrapper adds extra text to tofu output. That text would end up
+        # in the plan summary that tf.sh writes, so turn it off.
+        tofu_wrapper: false
+        # The SHA256 hashes of the linux_amd64 and linux_arm64 zips, the same
+        # as TOFU_SHA256_* in .ci/image/Dockerfile. The action stops if the
+        # download matches neither.
+        checksums: |
+          8ccbc6f8ee21d2827715f3c6e08a9b3e0209b1e62057c05067ef117e047c1a80
+          b9614df40575cc3fc10a8a25025b7245d961da279f715ea3efff4ddae8e6938a
 
     # The runner image has its own yq, but its version can change at any
     # time. Download a fixed version and check its hash, like the Dockerfile

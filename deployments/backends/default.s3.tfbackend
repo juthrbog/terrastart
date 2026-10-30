@@ -14,7 +14,7 @@ workspace_key_prefix = ""
 # Optional. A KMS key that encrypts the state objects. Use the key that
 # belongs to the same account and region as the bucket above. Leave the line
 # commented out to use the bucket's default encryption. Do not set it to "":
-# an empty value makes `terraform init` fail with "Invalid KMS Key ID".
+# an empty value makes `tofu init` fail with "Invalid KMS Key ID".
 # kms_key_id         = "arn:aws:kms:<region>:<account-id>:key/<key-id>"
 encrypt              = "true"
 use_lockfile         = "true"
