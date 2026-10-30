@@ -5,6 +5,12 @@ version: "3"
 set: [pipefail]
 shopt: [globstar]
 
+vars:
+  # The OpenTofu command that the tasks run. To use Terraform instead, run
+  # `TF_BIN=terraform task <name>` or `task <name> TF_BIN=terraform`.
+  TF_BIN:
+    sh: echo "${TF_BIN:-tofu}"
+
 tasks:
   # The tasks below do not install tools for you. A task that needs a tool
   # checks for it first and prints how to install it.
@@ -12,7 +18,7 @@ tasks:
   generate-tfdocs:
     aliases:
       - gen-docs
-    desc: Generate Documentation for the terraform code.
+    desc: Generate documentation for the code in terraform/.
     cmds:
       - terraform-docs terraform/.
     preconditions:
@@ -26,7 +32,7 @@ tasks:
     desc: Generate a unique deployment id (8 lowercase hex characters).
     # The ID is 8 hex characters with zero padding, so every ID has the same
     # length. YAML reads some hex values as numbers: all digits (12345678) or
-    # digits with one "e" (1234e567, a float). Terraform then changes the
+    # digits with one "e" (1234e567, a float). OpenTofu then changes the
     # value. So the loop makes a new value until it has a letter a-f and is
     # not of the form <digits>e<digits>.
     cmds:
@@ -42,17 +48,17 @@ tasks:
       - sh: command -v hexdump
         msg: "hexdump is not installed. Install it with your package manager (on Debian and Ubuntu it is in the bsdextrautils package)."
 
-  terraform-format:
+  format:
     aliases:
       - tf-fmt
-    desc: Format the terraform code recursively.
+    desc: Format the OpenTofu code recursively.
     cmds:
-      - terraform fmt -recursive
+      - '"{{.TF_BIN}}" fmt -recursive'
     preconditions:
-      - sh: command -v terraform
-        msg: "terraform is not installed. Install a version that matches required_version in deployments/versions.tf with your package manager or a version manager such as tfenv. See https://developer.hashicorp.com/terraform/install."
+      - sh: 'command -v "{{.TF_BIN}}"'
+        msg: "{{.TF_BIN}} is not installed. Install a version that matches required_version in deployments/versions.tf. For OpenTofu, see https://opentofu.org/docs/intro/install/. TF_BIN picks the command (default tofu)."
     status:
-      - terraform fmt -recursive -check
+      - '"{{.TF_BIN}}" fmt -recursive -check'
 
   list-deployments:
     silent: true
@@ -69,37 +75,38 @@ tasks:
           printf "%-32s  %s\n" "$name" "$desc"
         done
 
-  terraform-switch:
-    # Silent: do not echo the long script below. Terraform prints its own
+  switch:
+    # Silent: do not echo the long script below. OpenTofu prints its own
     # output.
     silent: true
     aliases:
       - tf-switch
-    desc: Fuzzy-search deployments and run terraform init + workspace select.
+    desc: Fuzzy-search deployments and run tofu init + workspace select.
     dir: "deployments/"
     env:
       # Share downloaded provider binaries across every project forked from
-      # this template. `terraform init` links from the cache instead of
+      # this template. `tofu init` links from the cache instead of
       # re-fetching ~600 MB of AWS provider per project. Respects an existing
       # TF_PLUGIN_CACHE_DIR export so users can point it elsewhere.
       TF_PLUGIN_CACHE_DIR:
         sh: echo "${TF_PLUGIN_CACHE_DIR:-$HOME/.terraform.d/plugin-cache}"
-      # The cache only stores the unpacked binary, so Terraform can recompute
+      # The cache only stores the unpacked binary, so OpenTofu can recompute
       # the `h1:` content hash but not the `zh:` zip hashes. When the committed
-      # lock file has no hash for this machine's platform, Terraform would
+      # lock file has no hash for this machine's platform, OpenTofu would
       # otherwise skip the cache and download again. This flag lets a cache
       # hit add the `h1:` hash of this platform to the lock file. Review that
       # change before you commit it. See "Provider lock file" in README.md.
       TF_PLUGIN_CACHE_MAY_BREAK_DEPENDENCY_LOCK_FILE: "1"
-      # Do not call the HashiCorp version check service. CI sets the same.
+      # With Terraform, do not call the HashiCorp version check service. CI
+      # sets the same.
       CHECKPOINT_DISABLE: "1"
     # Preconditions run before any command, so nothing changes when a tool is
     # missing.
     preconditions:
       - sh: command -v fzf
         msg: "fzf is not installed. Install it with your package manager or see https://github.com/junegunn/fzf#installation."
-      - sh: command -v terraform
-        msg: "terraform is not installed. Install a version that matches required_version in deployments/versions.tf with your package manager or a version manager such as tfenv. See https://developer.hashicorp.com/terraform/install."
+      - sh: 'command -v "{{.TF_BIN}}"'
+        msg: "{{.TF_BIN}} is not installed. Install a version that matches required_version in deployments/versions.tf. For OpenTofu, see https://opentofu.org/docs/intro/install/. TF_BIN picks the command (default tofu)."
     cmds:
       # Build a `<name>  <description>` line per deployment, so fzf shows the
       # description next to the deployment name. The name alone does not tell
@@ -107,7 +114,7 @@ tasks:
       # services in the same account). `description:` is optional.
       # Without it, the line has only the name. fzf's `{1}` placeholder sends
       # the deployment name to --preview. The last `awk` removes the
-      # description from the selection, so `terraform init` and
+      # description from the selection, so `tofu init` and
       # `workspace select` get only the name.
       #
       # The picker runs here and not in a `vars:` entry. Task works out vars
@@ -133,13 +140,13 @@ tasks:
           echo "deployments/backends/$deployment.s3.tfbackend does not exist. Copy deployments/backends/default.s3.tfbackend and fill it in." >&2
           exit 1
         fi
-        # Terraform refuses to use the plugin cache unless the directory
+        # OpenTofu refuses to use the plugin cache unless the directory
         # already exists, so create it before init.
         mkdir -p "$TF_PLUGIN_CACHE_DIR"
         echo "Switching to $deployment"
         rm -f .terraform/environment
-        terraform init -backend-config="backends/$deployment.s3.tfbackend" -reconfigure
-        terraform workspace select -or-create=true "$deployment"
+        "{{.TF_BIN}}" init -backend-config="backends/$deployment.s3.tfbackend" -reconfigure
+        "{{.TF_BIN}}" workspace select -or-create=true "$deployment"
 
   # A fork uses one CI platform. These two tasks delete the files of the other
   # platform. Both keep .ci/scripts/, because both platforms run tf.sh.

@@ -1,4 +1,4 @@
-# Terraform job templates.
+# OpenTofu job templates.
 #
 # The jobs in .ci/configs/ extend the `.validate`, `.plan`, `.apply`,
 # `.destroy-plan` and `.destroy` templates defined here.
@@ -15,7 +15,7 @@ default:
   # that asks for another policy fails on them. The image tag is versioned, so
   # the runner's default policy is enough.
   image:
-    name: $TERRAFORM_IMAGE
+    name: $TF_IMAGE
   # Set this to the tag of the runners that can reach your state bucket and
   # target accounts. Remove the block entirely to use any available runner.
   # tags:
@@ -48,10 +48,10 @@ stages:
 variables:
   # Container image for every job. Build it from .ci/image/Dockerfile and push
   # it to this project's container registry (see "CI image" in README.md).
-  # The tag matches the Terraform version in the Dockerfile and in
+  # The tag matches the OpenTofu version in the Dockerfile and in
   # .github/actions/setup-tools/action.yml. Point this at
   # another registry if your runners pull from somewhere else.
-  TERRAFORM_IMAGE: $CI_REGISTRY_IMAGE/terraform:1.14.3
+  TF_IMAGE: $CI_REGISTRY_IMAGE/tofu:1.13.1
   # OIDC token audience. Must match the `aud` condition on the IAM OIDC
   # provider in every target AWS account. The default is the URL of this
   # GitLab instance, for example https://gitlab.com. On a self-managed
@@ -72,9 +72,9 @@ variables:
   AWS_ROLE_SESSION_NAME: gl-$CI_PROJECT_ID-$CI_PIPELINE_ID-$CI_JOB_ID
 
 # Every job runs one command of .ci/scripts/tf.sh. The same script runs on
-# GitHub Actions, so both platforms run the same Terraform steps. tf.sh reads
+# GitHub Actions, so both platforms run the same OpenTofu steps. tf.sh reads
 # DEPLOYMENT, loads deployments/configs/$DEPLOYMENT.yaml with yq, sets up auth
-# and then runs Terraform. The image built from .ci/image/Dockerfile has every
+# and then runs OpenTofu. The image built from .ci/image/Dockerfile has every
 # tool tf.sh needs. A different image must have at least bash and mikefarah
 # yq 4.18 or newer.
 #
@@ -83,7 +83,7 @@ variables:
 #
 # resource_group: $DEPLOYMENT makes GitLab run at most one AWS-touching job
 # per deployment at a time, across all pipelines. This stops two pipelines
-# from changing the same Terraform state at once. GitLab expands CI/CD
+# from changing the same state at once. GitLab expands CI/CD
 # variables in resource_group, so one template line covers every deployment.
 # A newer pipeline can still plan between an older pipeline's plan and apply.
 # Its apply then fails with "Saved plan is stale". Re-run its plan job, then
@@ -105,7 +105,7 @@ variables:
 #
 # Plan artifacts: plan and destroy-plan save the plan file, a copy of the
 # provider lock file (tf.sh restores it before apply or destroy runs
-# `terraform init`) and, for plan, the change marker. `access: developer`
+# `tofu init`) and, for plan, the change marker. `access: developer`
 # hides them from users with less than the Developer role, because a plan
 # file can hold secret values. Apply and destroy upload nothing.
 

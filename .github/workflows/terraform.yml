@@ -1,8 +1,8 @@
-# Terraform pipeline for GitHub Actions.
+# OpenTofu pipeline for GitHub Actions.
 #
 # This is the GitHub version of the GitLab pipeline in .gitlab-ci.yml. A fork
 # uses one of the two. Run `task ci:use-github` to remove the GitLab files.
-# Both pipelines call .ci/scripts/tf.sh, so the Terraform steps are the same.
+# Both pipelines call .ci/scripts/tf.sh, so the OpenTofu steps are the same.
 #
 # Jobs run in this order, like the GitLab stages:
 #
@@ -42,7 +42,7 @@
 # do not list deployments in this file.
 #
 # Why a reusable workflow: each tier job above calls tf-deploy.yml, which
-# holds the real steps (checkout, Terraform, AWS credentials, plan files) once.
+# holds the real steps (checkout, OpenTofu, AWS credentials, plan files) once.
 # A job here only says which command, which tier, and which GitHub
 # Environment. Without it, the same 40 lines of steps would repeat 12 times.
 #
@@ -121,7 +121,7 @@ defaults:
     shell: bash
 
 jobs:
-  # Checks formatting, runs terraform validate, and runs shellcheck on
+  # Checks formatting, runs tofu validate, and runs shellcheck on
   # .ci/scripts/. It needs no AWS access, so it also runs on pull requests
   # from forks. GitHub gives those no OIDC token, so they run only this job
   # and the setup job. No job that uses AWS runs.
@@ -133,7 +133,7 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Terraform and yq
+      - name: Install OpenTofu and yq
         uses: ./.github/actions/setup-tools
 
       # ubuntu-latest already has shellcheck, so tf.sh checks the scripts too.
@@ -170,7 +170,7 @@ jobs:
           # or the commit before the push.
           fetch-depth: 0
 
-      - name: Install Terraform and yq
+      - name: Install OpenTofu and yq
         uses: ./.github/actions/setup-tools
 
       # Destroy works on one deployment at a time. A run with destroy=true

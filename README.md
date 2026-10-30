@@ -5,16 +5,22 @@
 
 <!-- Fork: replace this overview with a description of your project. -->
 
-This is a starter template for a Terraform project on AWS. It gives you:
+This is a starter template for an [OpenTofu](https://opentofu.org) project
+on AWS. It gives you:
 
-- `terraform/`: the Terraform code. Put your resources and modules here.
+- `terraform/`: the OpenTofu code. Put your resources and modules here.
 - `deployments/`: the root module that runs the code in `terraform/`. Each
   deployment has one YAML config file and one S3 backend file. The
-  Terraform workspace name selects the config.
+  workspace name selects the config.
 - A CI pipeline for GitLab CI and one for GitHub Actions. Both run the same
   script, `.ci/scripts/tf.sh`. They plan and apply one tier at a time
   (develop, stage, prod) and get AWS credentials through OIDC.
 - [Task](https://taskfile.dev) commands for local work.
+
+The folder name `terraform/`, the `.tf` files and the `.terraform*` files
+keep their names. OpenTofu reads them the same way.
+
+To use Terraform instead, see [Use Terraform instead](#use-terraform-instead).
 
 ## Quick start
 
@@ -29,7 +35,7 @@ This is a starter template for a Terraform project on AWS. It gives you:
 ### Config
 
 See the [default config](./deployments/configs/default.yaml) for options and
-their descriptions. `deployments/main.tf` loads the whole file. Terraform does
+their descriptions. `deployments/main.tf` loads the whole file. OpenTofu does
 not read the `ci:` block. Only the CI script reads it.
 
 Only `.yaml` files belong in `deployments/configs/`. The GitHub setup job
@@ -47,25 +53,25 @@ A deployment name has the form `<env>-<deployment_id>`, for example
   [`task gen-deploy-id`](#task-commands).
 
 Use the deployment name for the config file name, the tfbackend file name,
-the Terraform workspace name and the CI job names.
+the workspace name and the CI job names.
 
 A deployment ID from `task gen-deploy-id` has 8 lowercase hex characters, for
 example `0a1b2c3d`. It always has at least one letter. YAML reads some
 hex values as numbers, for example `12345678` or `1234e567` (a float).
-Terraform then changes the value, and `1234e567` becomes a number with 571
+OpenTofu then changes the value, and `1234e567` becomes a number with 571
 digits. So the task never prints such a value. Put the ID in quotes in the
 config, as `default.yaml` shows. `tf.sh` stops with an error when `env` or
 `deployment_id` is an unquoted value that YAML reads as a number.
 
 A deployment is one config file in `deployments/configs/`. The file name
 without `.yaml` is the deployment name. CI uses the deployment name as the
-Terraform workspace name.
+workspace name.
 
 ## CI Platform
 
 This template has a pipeline for GitLab CI and a pipeline for GitHub Actions.
 A fork uses only one of them. Both pipelines call the same script,
-[`.ci/scripts/tf.sh`](./.ci/scripts/tf.sh), so they run the same Terraform
+[`.ci/scripts/tf.sh`](./.ci/scripts/tf.sh), so they run the same OpenTofu
 steps. The platform files only start jobs, pass the deployment name, and
 move plan files between jobs.
 
@@ -118,9 +124,9 @@ happen to be set:
 | GitHub Actions (`GITHUB_ACTIONS` is set) | From `aws-actions/configure-aws-credentials`, which runs before `tf.sh`. `tf.sh` stops if `AWS_ACCESS_KEY_ID` is not set. |
 | Your machine | The normal AWS credential chain, for example `AWS_PROFILE` and an SSO session |
 
-Before Terraform runs, `tf.sh` runs `aws sts get-caller-identity`. In CI the
+Before OpenTofu runs, `tf.sh` runs `aws sts get-caller-identity`. In CI the
 caller must be the role in `ci.aws_role_arn`: the same account and the same
-role name. If it is not, the job stops before Terraform touches AWS. CI jobs
+role name. If it is not, the job stops before OpenTofu touches AWS. CI jobs
 need the AWS CLI for this check. On your own machine, only the account must
 match. See [Run the CI script locally](#run-the-ci-script-locally).
 
@@ -182,7 +188,7 @@ apply.
 > **Warning:** Do not use `ref:*` on the role of a prod deployment. With
 > `ref:*`, every person who can push a branch gets full apply and destroy
 > rights with that role. That person can change `.gitlab-ci.yml` on the branch
-> to run `terraform apply` or `terraform destroy`. Protected branches, manual
+> to run `tofu apply` or `tofu destroy`. Protected branches, manual
 > prod applies and the destroy rules do not stop this. A fork merge request
 > pipeline that a Maintainer runs in this project also gets a matching token.
 > Do these things instead:
@@ -255,7 +261,7 @@ For a role in another tier, change `environment:prod` to the tier name.
 > **Warning:** A pull request run uses the workflow files and `tf.sh` from the
 > pull request branch. So the `pull_request` `sub` gives the full role to every
 > person who can push a branch and open a pull request. That person can change
-> the plan job to run `terraform apply` with the prod role. The required
+> the plan job to run `tofu apply` with the prod role. The required
 > reviewers of `prod` and `destroy` do not stop this. If this matters to you,
 > remove `repo:<owner>/<repo>:pull_request` from the policy of prod roles. Pull
 > request plans for prod then fail. Another option is to give plan jobs a
@@ -301,7 +307,7 @@ Some runs cannot get credentials:
 #### AWS session length on GitHub
 
 The credentials from `configure-aws-credentials` last a fixed time and do not
-renew. If a job runs longer, Terraform loses access to AWS in the middle of
+renew. If a job runs longer, OpenTofu loses access to AWS in the middle of
 the apply. It can then fail to write the state.
 
 The repository variable `AWS_ROLE_DURATION_SECONDS` sets the session length.
@@ -334,23 +340,23 @@ Every job definition is in this repo, so a fork owns its whole pipeline.
 
 | Path | Platform | Holds |
 | --- | --- | --- |
-| [`.ci/scripts/tf.sh`](./.ci/scripts/tf.sh) | Both | All Terraform steps: `validate`, `plan`, `apply`, `destroy-plan`, `destroy`, and `matrix` (the deployment list for GitHub) |
+| [`.ci/scripts/tf.sh`](./.ci/scripts/tf.sh) | Both | All OpenTofu steps: `validate`, `plan`, `apply`, `destroy-plan`, `destroy`, and `matrix` (the deployment list for GitHub) |
 | [`.gitlab-ci.yml`](./.gitlab-ci.yml) | GitLab | Pipeline inputs, `workflow:rules` and the two local includes |
 | [`.ci/templates/tf-templates.yml`](./.ci/templates/tf-templates.yml) | GitLab | `.validate`, `.plan`, `.apply`, `.destroy-plan`, `.destroy`, the stage list, and the `default:` image and `id_tokens` |
 | [`.ci/image/Dockerfile`](./.ci/image/Dockerfile) | GitLab | The image that every GitLab job runs in |
 | [`.ci/configs/`](./.ci/configs/) | GitLab | `validate.yml` holds the shared `validate` job. The other files hold one job per deployment. Each of those jobs extends a template above and sets `DEPLOYMENT` |
 | [`.github/workflows/terraform.yml`](./.github/workflows/terraform.yml) | GitHub | Triggers, inputs, the `validate` and `setup` jobs, and one job per tier and step |
 | [`.github/workflows/tf-deploy.yml`](./.github/workflows/tf-deploy.yml) | GitHub | The steps for one tier: checkout, tools, AWS credentials, `tf.sh`, plan files, and the list of deployments with changes |
-| [`.github/actions/setup-tools/action.yml`](./.github/actions/setup-tools/action.yml) | GitHub | Installs the pinned Terraform and yq versions on the runner |
+| [`.github/actions/setup-tools/action.yml`](./.github/actions/setup-tools/action.yml) | GitHub | Installs the pinned OpenTofu and yq versions on the runner |
 
 ### CI image
 
 GitLab jobs run in a container image. [`.ci/image/Dockerfile`](./.ci/image/Dockerfile)
 builds it. The image holds:
 
-- Terraform, the same version as
+- OpenTofu (`tofu`), the same version as
   [`.github/actions/setup-tools/action.yml`](./.github/actions/setup-tools/action.yml)
-  and the `TERRAFORM_IMAGE` tag in `tf-templates.yml`
+  and the `TF_IMAGE` tag in `tf-templates.yml`
 - mikefarah yq 4 (`tf.sh` reads the deployment configs with it)
 - the AWS CLI v2 (the identity check) and jq (the change marker and the token
   claims)
@@ -360,15 +366,15 @@ builds it. The image holds:
 Each download in the Dockerfile is pinned to a SHA256 hash. The base image is
 pinned to a digest.
 
-`TERRAFORM_IMAGE` in [`tf-templates.yml`](./.ci/templates/tf-templates.yml)
-selects the image. By default it is `$CI_REGISTRY_IMAGE/terraform:1.14.3`.
+`TF_IMAGE` in [`tf-templates.yml`](./.ci/templates/tf-templates.yml)
+selects the image. By default it is `$CI_REGISTRY_IMAGE/tofu:1.13.1`.
 `CI_REGISTRY_IMAGE` is the address of this project's GitLab container
 registry. Build and push the image before the first pipeline runs:
 
 ```bash
 docker login <registry>
 docker buildx build --platform linux/amd64 \
-  -t <registry>/<group>/<project>/terraform:<terraform-version> \
+  -t <registry>/<group>/<project>/tofu:<tofu-version> \
   --push .ci/image
 ```
 
@@ -378,32 +384,32 @@ self-managed instance, it is the registry host that your admin set up for
 `<your-gitlab-host>`. The project page Deploy > Container registry shows the
 full address.
 
-Replace `<terraform-version>` with `TERRAFORM_VERSION` from the Dockerfile.
+Replace `<tofu-version>` with `TOFU_VERSION` from the Dockerfile.
 Use `linux/arm64` if your runners are ARM. If your runners pull from another
-registry, push the image there and change `TERRAFORM_IMAGE`.
+registry, push the image there and change `TF_IMAGE`.
 
 The templates set no `pull_policy`. The runner uses its own pull policy.
-Each Terraform version has its own image tag, so you do not have to force a
+Each OpenTofu version has its own image tag, so you do not have to force a
 pull.
 
 ### Change a tool version
 
-The Terraform and yq versions are pinned in more than one place. Keep them
+The OpenTofu and yq versions are pinned in more than one place. Keep them
 the same, so both pipelines and your machine run the same tools.
 
-To change the Terraform version:
+To change the OpenTofu version:
 
 1. In [`.ci/image/Dockerfile`](./.ci/image/Dockerfile), change
-   `TERRAFORM_VERSION`, `TERRAFORM_SHA256_AMD64` and
-   `TERRAFORM_SHA256_ARM64`. The Dockerfile header says where to find the
-   hashes.
+   `TOFU_VERSION`, `TOFU_SHA256_AMD64` and `TOFU_SHA256_ARM64`. The
+   Dockerfile header says where to find the hashes.
 2. In [`tf-templates.yml`](./.ci/templates/tf-templates.yml), change the tag
-   in `TERRAFORM_IMAGE`.
+   in `TF_IMAGE`.
 3. In [`.github/actions/setup-tools/action.yml`](./.github/actions/setup-tools/action.yml),
-   change `terraform_version`. Every GitHub job uses this action.
+   change `tofu_version` and the two hashes in `checksums`. Use the same
+   hashes as the Dockerfile. Every GitHub job uses this action.
 4. Make sure that the new version meets `required_version` in
    `deployments/versions.tf` and `terraform/versions.tf`. The default is
-   `>= 1.14.0`, and CI pins 1.14.3. If you raise the lowest version that the
+   `>= 1.13.0`, and CI pins 1.13.1. If you raise the lowest version that the
    code needs, change `required_version` in both files. They must match.
 5. Update the version shown in the CI image section of this README.
 6. Build and push the image with the new tag (GitLab only).
@@ -420,17 +426,18 @@ CLI of the runner image.
 `deployments/.terraform.lock.hcl` records the provider versions and their
 hashes. Keep it in the repository. Without it, each plan picks the newest
 provider version that the version constraints allow. The template comes with
-a lock file that pins the AWS provider (`~> 6.0` in `versions.tf`) to 6.71.0,
-with hashes for `linux_amd64`, `linux_arm64`, `darwin_amd64` and
-`darwin_arm64`.
+a lock file that pins the AWS provider (`~> 6.0` in `versions.tf`) to 6.71.0.
+The hashes come from the OpenTofu registry (`registry.opentofu.org`). They
+cover every platform that the provider is built for, including
+`linux_amd64`, `linux_arm64`, `darwin_amd64` and `darwin_arm64`.
 
 After you add a provider or change a provider version, update the lock file
 in `deployments/` and commit it:
 
 ```bash
 cd deployments/
-terraform init -backend=false -upgrade
-terraform providers lock \
+tofu init -backend=false -upgrade
+tofu providers lock \
   -platform=linux_amd64 -platform=linux_arm64 \
   -platform=darwin_amd64 -platform=darwin_arm64
 ```
@@ -442,7 +449,7 @@ a checksum error.
 CI also saves a copy of the lock file next to each plan file:
 `deployments/<deployment>.lock.hcl` for a plan, and
 `deployments/<deployment>-destroy.lock.hcl` for a destroy plan. The apply or
-destroy job puts that copy back before `terraform init`, and runs init with
+destroy job puts that copy back before `tofu init`, and runs init with
 `-lockfile=readonly`. So apply uses the same providers as the plan, even when
 a new provider version comes out between plan and apply. `.gitignore` ignores
 these copies.
@@ -568,8 +575,9 @@ input. `tf.sh matrix` then reads and checks only that config, and stops if it
 does not exist.
 
 `tf.sh` sets `TF_IN_AUTOMATION=1` and `CHECKPOINT_DISABLE=1` for every
-Terraform command. Terraform then prints shorter output and does not call the
-HashiCorp version check service.
+OpenTofu command. OpenTofu then prints shorter output. `CHECKPOINT_DISABLE`
+matters only for Terraform: it stops calls to the HashiCorp version check
+service.
 
 ### One job per deployment at a time
 
@@ -620,7 +628,7 @@ job.
 ### State lock left after a failed job
 
 The S3 backend locks the state while a job runs (`use_lockfile = true`). If a
-job stops before Terraform can release the lock, the lock stays. For example,
+job stops before OpenTofu can release the lock, the lock stays. For example,
 a runner is lost, a job hits its time limit, or someone cancels the job. Each
 later plan or apply for that deployment then fails with
 `Error acquiring the state lock`. The error message shows the lock ID.
@@ -632,11 +640,11 @@ To remove the lock:
 3. In `deployments/`, run init and select the workspace:
 
    ```bash
-   terraform init -backend-config=backends/<deployment>.s3.tfbackend -reconfigure
-   terraform workspace select <deployment>
+   tofu init -backend-config=backends/<deployment>.s3.tfbackend -reconfigure
+   tofu workspace select <deployment>
    ```
 
-4. Run `terraform force-unlock <LOCK_ID>`. Use the lock ID from the error
+4. Run `tofu force-unlock <LOCK_ID>`. Use the lock ID from the error
    message.
 
 If the job stopped during an apply or destroy, part of the change can be
@@ -646,7 +654,7 @@ done. The saved plan is then stale. Run a new plan, look at it, and apply it.
 
 The plan jobs keep the plan file as a job artifact for 7 days, so the apply
 or destroy job can use it. A plan file holds every value in plain text,
-including values that Terraform marks as sensitive.
+including values that OpenTofu marks as sensitive.
 
 - On GitHub, every person who can read the repository can download the
   artifacts. In a public repository, that is everyone.
@@ -655,14 +663,14 @@ including values that Terraform marks as sensitive.
   Apply and destroy jobs upload no artifacts.
 
 The plan text is also in the job logs, and on GitHub in the step summary of
-each plan job. Terraform hides values that are marked as sensitive in this
+each plan job. OpenTofu hides values that are marked as sensitive in this
 text. It shows all other values, for example a password in a variable that
 is not marked `sensitive`. `retention-days` and `expire_in` do not apply to
 logs and step summaries. GitHub keeps them for the log retention time of the
 repository. GitLab keeps job logs until someone deletes them, unless your
 instance sets a limit.
 
-- Keep the repository private, or keep secret values out of Terraform state.
+- Keep the repository private, or keep secret values out of the state.
 - Mark every secret variable and output as `sensitive`.
 - To keep plan files for less time, lower `retention-days` in
   `tf-deploy.yml` (GitHub) or `expire_in` in `tf-templates.yml` (GitLab).
@@ -817,12 +825,12 @@ Do these steps in this order:
    [Manual](#manual)) and run these commands in `deployments/`:
 
    ```bash
-   terraform init -backend-config=backends/<deployment>.s3.tfbackend -reconfigure
-   terraform workspace select default
-   terraform workspace delete <deployment>
+   tofu init -backend-config=backends/<deployment>.s3.tfbackend -reconfigure
+   tofu workspace select default
+   tofu workspace delete <deployment>
    ```
 
-   Terraform refuses to delete a workspace whose state still holds
+   OpenTofu refuses to delete a workspace whose state still holds
    resources. So this step also makes sure that the destroy is complete.
 3. In one pull request or merge request, delete these files:
    - `deployments/configs/<deployment>.yaml`
@@ -831,7 +839,7 @@ Do these steps in this order:
 4. On GitLab, delete the stopped environment in Operate > Environments.
 
 A rename of a config, for example to move it to another tier, is a remove
-and an add. The new name is a new workspace with empty state. Terraform tries
+and an add. The new name is a new workspace with empty state. OpenTofu tries
 to make every resource again, and the old resources stay under the old
 workspace. Destroy the old deployment first, or move the state by hand.
 
@@ -842,8 +850,8 @@ You must select and activate a deployment config before running plan/apply local
 ### With Task
 
 `task tf-switch` provides a fuzzy-search picker over all deployment configs.
-Select a deployment and it runs `terraform init` and `workspace select`
-automatically. It needs [fzf](https://github.com/junegunn/fzf) and Terraform.
+Select a deployment and it runs `tofu init` and `workspace select`
+automatically. It needs [fzf](https://github.com/junegunn/fzf) and OpenTofu.
 If one is missing, the task stops and says how to install it. If you press
 Esc or pick nothing, the task stops and changes nothing.
 
@@ -855,7 +863,7 @@ Esc or pick nothing, the task stops and changes nothing.
 task tf-switch
 ```
 
-After selecting the deployment, run `terraform plan` and `terraform apply`
+After selecting the deployment, run `tofu plan` and `tofu apply`
 commands as needed.
 
 ### Manual
@@ -868,13 +876,13 @@ commands as needed.
    export AWS_PROFILE=<profile> AWS_DEFAULT_REGION=<region>
    ```
 
-2. Run Terraform against the workspace of the deployment:
+2. Run OpenTofu against the workspace of the deployment:
 
    ```bash
    cd deployments/
-   terraform init -backend-config=backends/<env>-<deployment_id>.s3.tfbackend -reconfigure
-   terraform workspace select -or-create <env>-<deployment_id>
-   terraform plan
+   tofu init -backend-config=backends/<env>-<deployment_id>.s3.tfbackend -reconfigure
+   tofu workspace select -or-create <env>-<deployment_id>
+   tofu plan
    ```
 
 The AWS provider uses your SSO session credentials. To use a specific role
@@ -892,7 +900,7 @@ You can run `tf.sh` on your own machine. It needs:
   the new bash is first on your `PATH`. `tf.sh` stops with an error on an
   older bash.
 - mikefarah yq 4.18 or newer.
-- Terraform.
+- [OpenTofu](https://opentofu.org/docs/intro/install/) 1.13 or newer.
 
 `tf.sh` uses your normal AWS credential chain, so `AWS_PROFILE` works:
 
@@ -901,7 +909,7 @@ aws sso login --profile <profile>
 AWS_PROFILE=<profile> DEPLOYMENT=<env>-<deployment_id> .ci/scripts/tf.sh plan
 ```
 
-Before Terraform runs, `tf.sh` checks with the AWS CLI that your credentials
+Before OpenTofu runs, `tf.sh` checks with the AWS CLI that your credentials
 are for the account of `ci.aws_role_arn`. If the account is different, it
 stops. If you use another role in the same account, it prints a warning and
 goes on. If the AWS CLI is not installed, or `PRINT_OIDC_CLAIMS=false` is
@@ -921,14 +929,31 @@ Do not run `tf.sh` in a shell that has `GITLAB_CI` or `GITHUB_ACTIONS` set.
 
 This project uses [Task](https://taskfile.dev) for common operations. The
 tasks do not install tools. A task that needs a missing tool stops and says
-how to install it.
+how to install it. The tasks run `tofu`. See
+[Use Terraform instead](#use-terraform-instead).
 
 | Command              | Description                                          | Needs |
 | -------------------- | ---------------------------------------------------- | ----- |
-| `task tf-switch`     | Fuzzy-search deployments, init + workspace select    | fzf, Terraform |
+| `task tf-switch`     | Fuzzy-search deployments, init + workspace select    | fzf, OpenTofu |
 | `task ls-deploys`    | List deployments and their descriptions              | |
 | `task gen-deploy-id` | Generate a unique deployment ID (8 hex characters)   | hexdump |
 | `task gen-docs`      | Write `terraform/README.md` and a README for each module in `terraform/modules/`. It replaces the whole content of these files | terraform-docs |
-| `task tf-fmt`        | Format Terraform code recursively                    | Terraform |
+| `task tf-fmt`        | Format the OpenTofu code recursively                 | OpenTofu |
 | `task ci:use-github` | Keep GitHub Actions and delete the GitLab CI files   | gum (optional) |
 | `task ci:use-gitlab` | Keep GitLab CI and delete the GitHub Actions files   | gum (optional) |
+
+## Use Terraform instead
+
+OpenTofu is the default. To use Terraform, change three things:
+
+1. Set `TF_BIN=terraform`. `tf.sh` and the tasks run `$TF_BIN`. In CI, set it
+   as a CI/CD variable (GitLab) or as `env:` on the jobs (GitHub).
+2. Install Terraform in the CI image (`.ci/image/Dockerfile`), or in
+   `.github/actions/setup-tools/action.yml` with
+   `hashicorp/setup-terraform` and `terraform_wrapper: false`.
+3. Update the lock file with `terraform`, as
+   [Provider lock file](#provider-lock-file) shows, and commit it. The
+   committed lock file has hashes for the OpenTofu registry only. Terraform
+   adds hashes for its own registry (`registry.terraform.io`).
+
+`required_version` is `>= 1.13.0`, so Terraform 1.13 and newer also work.

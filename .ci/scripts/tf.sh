@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Shared Terraform steps for CI.
+# Shared OpenTofu steps for CI.
 #
 # GitLab CI and GitHub Actions both call this script, so the two platforms run
 # the same steps. The platform YAML only picks the command, sets DEPLOYMENT and
 # handles artifacts. You can also run it on your own machine (bash 4 or newer).
 #
 # Usage:
-#   tf.sh validate       Check formatting, run terraform validate and shellcheck.
+#   tf.sh validate       Check formatting, run tofu validate and shellcheck.
 #   tf.sh plan           Write deployments/$DEPLOYMENT.out, the lock file copy
 #                        deployments/$DEPLOYMENT.lock.hcl and the change marker
 #                        deployments/$DEPLOYMENT.changes.
@@ -17,6 +17,9 @@
 #   tf.sh matrix         Print the deployment list per tier for GitHub Actions.
 #
 # Inputs (environment variables):
+#   TF_BIN                       The OpenTofu or Terraform command to run.
+#                                Default: tofu. Set it to terraform to use
+#                                Terraform instead.
 #   DEPLOYMENT                   Config file name without ".yaml", for example
 #                                develop-a1b2c3d4. Required by plan, apply,
 #                                destroy-plan and destroy.
@@ -46,7 +49,7 @@
 # machine). In CI the aws CLI must be installed.
 #
 # A deployment is one file in deployments/configs/. The file name, the
-# Terraform workspace name and DEPLOYMENT are the same value:
+# workspace name and DEPLOYMENT are the same value:
 # <env>-<deployment_id>. This script reads env, deployment_id, aws.region
 # and ci.aws_role_arn from that file with yq (mikefarah yq 4.18 or newer). The plan step also needs jq in CI.
 
@@ -79,8 +82,13 @@ YQ_MIN_MINOR=18
 # GitHub keeps step summaries under 1 MiB. Cut the plan text well before that.
 SUMMARY_MAX_BYTES=400000
 
-# Tell Terraform it runs without a person at the keyboard: shorter output, no
-# "what to do next" hints, and no calls to the HashiCorp version check service.
+# The command that runs every OpenTofu step. Set TF_BIN=terraform to use
+# Terraform instead. Both read the same code and the same TF_* variables.
+TF_BIN="${TF_BIN:-tofu}"
+
+# Tell OpenTofu it runs without a person at the keyboard: shorter output and
+# no "what to do next" hints. CHECKPOINT_DISABLE matters only for Terraform:
+# it stops calls to the HashiCorp version check service.
 export TF_IN_AUTOMATION=1
 export CHECKPOINT_DISABLE=1
 
@@ -127,8 +135,13 @@ require_yq() {
   fi
 }
 
-require_terraform() {
-  require_cmd terraform "Install Terraform, or use a CI image that has it."
+# Check that the TF_BIN command (tofu by default) is installed.
+require_tf() {
+  case "$TF_BIN" in
+    tofu) require_cmd "$TF_BIN" "Install OpenTofu (https://opentofu.org/docs/intro/install/), or use a CI image that has it. To use Terraform instead, set TF_BIN=terraform." ;;
+    terraform) require_cmd "$TF_BIN" "Install Terraform, or unset TF_BIN to use OpenTofu." ;;
+    *) require_cmd "$TF_BIN" "TF_BIN must name the tofu or terraform command." ;;
+  esac
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -156,7 +169,7 @@ read_config() {
 }
 
 # True when YAML reads an unquoted value as a number, for example 12345678,
-# 1234e567 or 1.5. Terraform's yamldecode then turns it into a number, and
+# 1234e567 or 1.5. OpenTofu's yamldecode then turns it into a number, and
 # 1234e567 becomes a string of 571 digits.
 looks_like_number() {
   [[ "$1" =~ ^[+-]?([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?$ ]]
@@ -188,7 +201,7 @@ validate_config() {
     return 1
   fi
 
-  # The file name is the Terraform workspace name, and main.tf loads
+  # The file name is the workspace name, and main.tf loads
   # configs/<workspace>.yaml. So the name must match the fields inside.
   local expected="$cfg_env-$cfg_deployment_id"
   if [[ "$expected" != "$name" ]]; then
@@ -218,7 +231,7 @@ validate_config() {
       deployment_id) value="$cfg_deployment_id" style="$cfg_deployment_id_style" ;;
     esac
     if [[ "$style" != double && "$style" != single ]] && looks_like_number "$value"; then
-      error "$rel has $field $value without quotes. YAML reads it as a number, so Terraform changes it (for example 1234e567 becomes a 571-digit number). Put the value in quotes: $field: \"$value\"."
+      error "$rel has $field $value without quotes. YAML reads it as a number, so OpenTofu changes it (for example 1234e567 becomes a 571-digit number). Put the value in quotes: $field: \"$value\"."
       if [[ "$field" == deployment_id ]]; then
         echo "  For a new deployment, you can instead run 'task gen-deploy-id' for a new ID." >&2
       fi
@@ -235,7 +248,7 @@ validate_config() {
 }
 
 # Load the config for $DEPLOYMENT, check it, and export the values the
-# Terraform steps and the AWS SDK need.
+# OpenTofu steps and the AWS SDK need.
 load_deployment() {
   if [[ -z "${DEPLOYMENT:-}" ]]; then
     fail "DEPLOYMENT is not set. Set it to a config file name without '.yaml', for example develop-a1b2c3d4."
@@ -272,7 +285,7 @@ load_deployment() {
 
   export ENV="$cfg_env"
   export DEPLOYMENT_ID="$cfg_deployment_id"
-  export TERRAFORM_WORKSPACE="$DEPLOYMENT"
+  export DEPLOYMENT_WORKSPACE="$DEPLOYMENT"
   export AWS_REGION="$cfg_region"
   export AWS_DEFAULT_REGION="$cfg_region"
 
@@ -309,7 +322,7 @@ ci_platform() {
   fi
 }
 
-# Get AWS credentials ready for Terraform. The mode depends on the platform,
+# Get AWS credentials ready for OpenTofu. The mode depends on the platform,
 # not on which AWS variables happen to be set.
 #
 # - GitLab CI: GitLab makes a JWT (JSON Web Token) for each job in
@@ -317,7 +330,7 @@ ci_platform() {
 #   exports AWS_ROLE_ARN. The AWS SDK then trades the token for role
 #   credentials. Static keys and AWS_PROFILE are unset first, because the SDK
 #   prefers them over the token. A group or instance CI/CD variable could
-#   otherwise run Terraform as some other identity.
+#   otherwise run OpenTofu as some other identity.
 # - GitHub Actions: aws-actions/configure-aws-credentials runs before this
 #   script and sets AWS_ACCESS_KEY_ID.
 # - Your machine: the normal AWS credential chain (AWS_PROFILE, SSO, ...).
@@ -347,7 +360,7 @@ setup_auth() {
       export AWS_WEB_IDENTITY_TOKEN_FILE="${AWS_WEB_IDENTITY_TOKEN_FILE:-${TMPDIR:-/tmp}/gitlab-oidc-${CI_JOB_ID:-$$}.jwt}"
       export AWS_ROLE_ARN="$cfg_role_arn"
       # The SDK reads the file again when it renews credentials, so delete
-      # it only when tf.sh exits, after Terraform is done.
+      # it only when tf.sh exits, after OpenTofu is done.
       trap 'rm -f -- "$AWS_WEB_IDENTITY_TOKEN_FILE"' EXIT
       (
         umask 077
@@ -429,7 +442,7 @@ check_identity() {
   fi
 
   if [[ "$caller_partition" != "$want_partition" || "$caller_account" != "$want_account" ]]; then
-    fail "AWS credentials are for '$caller', but ci.aws_role_arn is $cfg_role_arn. The account or partition does not match, so tf.sh stops before Terraform touches the wrong account."
+    fail "AWS credentials are for '$caller', but ci.aws_role_arn is $cfg_role_arn. The account or partition does not match, so tf.sh stops before OpenTofu touches the wrong account."
   fi
   if [[ "$caller_kind" == assumed-role && "$caller_role" == "$want_role" ]]; then
     echo "AWS identity check PASSED: $caller"
@@ -443,17 +456,17 @@ check_identity() {
 }
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Terraform steps
+# OpenTofu steps
 
 # Init with this deployment's backend and select its workspace. Runs in
 # deployments/.
-#   $@: extra terraform init flags
+#   $@: extra init flags
 tf_init_workspace() {
   cd "$DEPLOYMENTS_DIR"
-  echo "Running terraform init with $DEPLOYMENT.s3.tfbackend"
-  terraform init -input=false -backend-config="backends/$DEPLOYMENT.s3.tfbackend" -reconfigure "$@"
-  echo "Selecting terraform workspace $TERRAFORM_WORKSPACE"
-  terraform workspace select -or-create "$TERRAFORM_WORKSPACE"
+  echo "Running $TF_BIN init with $DEPLOYMENT.s3.tfbackend"
+  "$TF_BIN" init -input=false -backend-config="backends/$DEPLOYMENT.s3.tfbackend" -reconfigure "$@"
+  echo "Selecting $TF_BIN workspace $DEPLOYMENT_WORKSPACE"
+  "$TF_BIN" workspace select -or-create "$DEPLOYMENT_WORKSPACE"
 }
 
 # Write a plan summary to the GitHub job page. Only runs on GitHub Actions.
@@ -465,8 +478,8 @@ write_step_summary() {
 
   local show_file result size
   show_file="$(mktemp)"
-  if ! terraform show -no-color "$plan_file" >"$show_file" 2>&1; then
-    echo "NOTE: terraform show failed; the step summary has no plan details." >&2
+  if ! "$TF_BIN" show -no-color "$plan_file" >"$show_file" 2>&1; then
+    echo "NOTE: $TF_BIN show failed; the step summary has no plan details." >&2
   fi
   result="$(grep -E '^(Plan: |No changes\.)' "$show_file" | head -n 1 || true)"
   # A plan that changes only outputs has no "Plan:" line.
@@ -481,7 +494,7 @@ write_step_summary() {
     echo
     echo "**$result**"
     echo
-    echo "<details><summary>terraform show output</summary>"
+    echo "<details><summary>$TF_BIN show output</summary>"
     echo
     echo "<pre>"
     # Escape HTML so the plan text shows as plain text inside <pre>.
@@ -514,7 +527,7 @@ require_plan_file() {
 save_lock_file() {
   local saved="$1"
   if [[ ! -f "$DEPLOYMENTS_DIR/.terraform.lock.hcl" ]]; then
-    fail "terraform init did not write deployments/.terraform.lock.hcl, so the apply step cannot use the same providers as this plan."
+    fail "$TF_BIN init did not write deployments/.terraform.lock.hcl, so the apply step cannot use the same providers as this plan."
   fi
   cp "$DEPLOYMENTS_DIR/.terraform.lock.hcl" "$DEPLOYMENTS_DIR/$saved"
   echo "Saved the provider lock file as deployments/$saved"
@@ -545,7 +558,7 @@ write_change_marker() {
     echo "NOTE: 'jq' is not installed. Skipping deployments/$marker (only CI uses it)." >&2
     return 0
   fi
-  changes="$(terraform show -json "$plan_file" | jq -r '
+  changes="$("$TF_BIN" show -json "$plan_file" | jq -r '
     [ (.resource_changes // [])[]
       | select(
           (.change.actions != ["no-op"] and .change.actions != ["read"])
@@ -563,18 +576,18 @@ write_change_marker() {
 }
 
 cmd_validate() {
-  require_terraform
+  require_tf
   cd "$REPO_ROOT"
 
-  echo "Checking terraform formatting... If it fails, the pipeline job will fail"
-  terraform fmt -recursive -check .
-  echo "Terraform formatting PASSED"
+  echo "Checking $TF_BIN formatting... If it fails, the pipeline job will fail"
+  "$TF_BIN" fmt -recursive -check .
+  echo "Formatting PASSED"
 
   cd "$DEPLOYMENTS_DIR"
-  echo "Checking terraform validate..."
-  terraform init -input=false -backend=false
-  terraform validate
-  echo "Terraform validate PASSED"
+  echo "Checking $TF_BIN validate..."
+  "$TF_BIN" init -input=false -backend=false
+  "$TF_BIN" validate
+  echo "Validate PASSED"
 
   cd "$REPO_ROOT"
   if command -v shellcheck >/dev/null 2>&1; then
@@ -588,7 +601,7 @@ cmd_validate() {
 
 cmd_plan() {
   require_yq
-  require_terraform
+  require_tf
   if [[ "$(ci_platform)" != local ]]; then
     require_cmd jq "The plan step needs it to write deployments/\$DEPLOYMENT.changes."
   fi
@@ -599,16 +612,16 @@ cmd_plan() {
   # Remove an old marker, so a failed plan cannot leave a stale one behind.
   rm -f "$DEPLOYMENTS_DIR/$DEPLOYMENT.changes"
 
-  echo "Running terraform plan for $TERRAFORM_WORKSPACE workspace"
-  terraform plan -input=false -out="$DEPLOYMENT.out"
+  echo "Running $TF_BIN plan for $DEPLOYMENT_WORKSPACE workspace"
+  "$TF_BIN" plan -input=false -out="$DEPLOYMENT.out"
   write_change_marker "$DEPLOYMENT.out"
   write_step_summary "$DEPLOYMENT.out" "Plan: $DEPLOYMENT"
-  echo "Terraform plan successful for $TERRAFORM_WORKSPACE workspace"
+  echo "Plan successful for $DEPLOYMENT_WORKSPACE workspace"
 }
 
 cmd_apply() {
   require_yq
-  require_terraform
+  require_tf
   load_deployment
   require_plan_file "$DEPLOYMENT.out" "tf.sh plan"
   restore_lock_file "$DEPLOYMENT.lock.hcl" "tf.sh plan"
@@ -616,29 +629,29 @@ cmd_apply() {
   # readonly: fail instead of changing the lock file the plan was made with.
   tf_init_workspace -lockfile=readonly
 
-  echo "Running terraform apply for $TERRAFORM_WORKSPACE workspace"
-  terraform apply -input=false "$DEPLOYMENT.out"
-  echo "Terraform apply successful for $TERRAFORM_WORKSPACE workspace"
+  echo "Running $TF_BIN apply for $DEPLOYMENT_WORKSPACE workspace"
+  "$TF_BIN" apply -input=false "$DEPLOYMENT.out"
+  echo "Apply successful for $DEPLOYMENT_WORKSPACE workspace"
 }
 
 cmd_destroy_plan() {
   require_yq
-  require_terraform
+  require_tf
   load_deployment
   setup_auth
   tf_init_workspace
   save_lock_file "$DEPLOYMENT-destroy.lock.hcl"
 
-  echo "Running terraform plan -destroy for $TERRAFORM_WORKSPACE workspace"
-  terraform plan -destroy -input=false -out="$DEPLOYMENT-destroy.out"
+  echo "Running $TF_BIN plan -destroy for $DEPLOYMENT_WORKSPACE workspace"
+  "$TF_BIN" plan -destroy -input=false -out="$DEPLOYMENT-destroy.out"
   write_step_summary "$DEPLOYMENT-destroy.out" "Destroy plan: $DEPLOYMENT"
-  echo "Terraform destroy-plan successful for $TERRAFORM_WORKSPACE workspace"
+  echo "Destroy-plan successful for $DEPLOYMENT_WORKSPACE workspace"
   printf "${YELLOW}%s${RESET}\n" "If you run the next pipeline job, it will destroy the $DEPLOYMENT environment. BE ABSOLUTELY SURE YOU WANT TO DO THIS!"
 }
 
 cmd_destroy() {
   require_yq
-  require_terraform
+  require_tf
   load_deployment
   require_plan_file "$DEPLOYMENT-destroy.out" "tf.sh destroy-plan"
   restore_lock_file "$DEPLOYMENT-destroy.lock.hcl" "tf.sh destroy-plan"
@@ -646,9 +659,9 @@ cmd_destroy() {
   # readonly: fail instead of changing the lock file the plan was made with.
   tf_init_workspace -lockfile=readonly
 
-  echo "Running terraform destroy for $TERRAFORM_WORKSPACE workspace"
-  terraform apply -auto-approve -input=false "$DEPLOYMENT-destroy.out"
-  echo "Terraform destroy successful for $TERRAFORM_WORKSPACE workspace"
+  echo "Running $TF_BIN destroy for $DEPLOYMENT_WORKSPACE workspace"
+  "$TF_BIN" apply -auto-approve -input=false "$DEPLOYMENT-destroy.out"
+  echo "Destroy successful for $DEPLOYMENT_WORKSPACE workspace"
 }
 
 # Print one line per tier in GITHUB_OUTPUT format, for example:
