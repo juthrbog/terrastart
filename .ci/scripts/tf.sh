@@ -461,12 +461,40 @@ check_identity() {
 # Init with this deployment's backend and select its workspace. Runs in
 # deployments/.
 #   $@: extra init flags
+#
+# A plain init reads the state of the default workspace. With
+# workspace_key_prefix, that state is at the bucket root, outside the
+# deployment's prefix. A CI role that may read only its own prefix gets
+# 403 Forbidden there. So init goes straight to the deployment's workspace
+# with TF_WORKSPACE, and reads only that workspace's state.
+#
+# When the prefix has no workspaces yet, init with TF_WORKSPACE creates the
+# workspace. When other workspaces exist, it fails for a missing one. Only
+# then does this fall back to a plain init and `workspace select -or-create`.
+# That fallback needs read access to the bucket root. See "State access" in
+# README.md.
 tf_init_workspace() {
   cd "$DEPLOYMENTS_DIR"
-  echo "Running $TF_BIN init with $DEPLOYMENT.s3.tfbackend"
-  "$TF_BIN" init -input=false -backend-config="backends/$DEPLOYMENT.s3.tfbackend" -reconfigure "$@"
-  echo "Selecting $TF_BIN workspace $DEPLOYMENT_WORKSPACE"
-  "$TF_BIN" workspace select -or-create "$DEPLOYMENT_WORKSPACE"
+  local init_log
+  init_log="$(mktemp)"
+  echo "Running $TF_BIN init with $DEPLOYMENT.s3.tfbackend (workspace $DEPLOYMENT_WORKSPACE)"
+  if TF_WORKSPACE="$DEPLOYMENT_WORKSPACE" "$TF_BIN" init -input=false -backend-config="backends/$DEPLOYMENT.s3.tfbackend" -reconfigure "$@" 2>&1 | tee "$init_log"; then
+    rm -f -- "$init_log"
+    echo "Selecting $TF_BIN workspace $DEPLOYMENT_WORKSPACE"
+    "$TF_BIN" workspace select "$DEPLOYMENT_WORKSPACE"
+    return
+  fi
+  if ! grep -q "workspace \"$DEPLOYMENT_WORKSPACE\" does not exist" "$init_log"; then
+    rm -f -- "$init_log"
+    fail "$TF_BIN init failed. See the output above."
+  fi
+  rm -f -- "$init_log"
+
+  echo "Workspace $DEPLOYMENT_WORKSPACE does not exist yet. Creating it."
+  if ! "$TF_BIN" init -input=false -backend-config="backends/$DEPLOYMENT.s3.tfbackend" -reconfigure "$@" \
+    || ! "$TF_BIN" workspace select -or-create "$DEPLOYMENT_WORKSPACE"; then
+    fail "Could not create workspace $DEPLOYMENT_WORKSPACE. If the CI role may use only its own prefix of the state bucket, it cannot create a workspace. Create it once with wider credentials (for example 'task switch' on your machine), then run this job again. See \"State access\" in README.md."
+  fi
 }
 
 # Write a plan summary to the GitHub job page. Only runs on GitHub Actions.
