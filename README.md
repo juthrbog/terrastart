@@ -115,6 +115,35 @@ environments that run jobs.
 
 CI authenticates with OIDC only. Static AWS access keys are not used.
 
+#### State access
+
+Each deployment's state is at
+`<workspace_key_prefix>/<deployment>/<key>` in the state bucket. You can
+limit a CI role to its own prefix, for example `s3:GetObject` and
+`s3:PutObject` on `<bucket>/<workspace_key_prefix>/*` and `s3:ListBucket`
+with the condition `s3:prefix` like `<workspace_key_prefix>/*`. `tf.sh`
+works with such a role:
+
+- `tf.sh` runs `init` with `TF_WORKSPACE` set to the deployment. So `init`
+  reads only that workspace's state, not the state of the `default`
+  workspace at the bucket root.
+- A role like this may not be able to create a new workspace. When the
+  prefix already has other workspaces, OpenTofu must read the bucket root to
+  create one. Create the workspace once with wider credentials before the
+  first pipeline of a new deployment:
+
+  ```bash
+  cd deployments
+  tofu init -backend-config=backends/<deployment>.s3.tfbackend
+  tofu workspace select -or-create <deployment>
+  ```
+
+  If the workspace is missing, the CI job tries to create it and stops with
+  an error that points here.
+
+A role with read access to the whole bucket needs none of this. Its first
+job creates the workspace.
+
 `tf.sh` picks the auth mode from the platform, not from the AWS variables that
 happen to be set:
 
@@ -779,7 +808,9 @@ GitLab token, so the trust policy cannot require a protected environment.
 3. Copy `deployments/backends/default.s3.tfbackend` to
    `deployments/backends/<env>-<deployment_id>.s3.tfbackend` and fill
    it in.
-4. Make the IAM role for `ci.aws_role_arn`. See [CI Auth](#ci-auth).
+4. Make the IAM role for `ci.aws_role_arn`. See [CI Auth](#ci-auth). If
+   the role may use only its own prefix of the state bucket, also create
+   the workspace once. See [State access](#state-access).
 5. If you added a provider or changed a provider version, update
    `deployments/.terraform.lock.hcl`. See
    [Provider lock file](#provider-lock-file).
