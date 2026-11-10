@@ -248,14 +248,26 @@ uses the role and region of the deployment, from `ci.aws_role_arn` and
 `aws.region`. `tf.sh` then checks that the credentials belong to that role.
 
 The identity provider is `token.actions.githubusercontent.com`. The audience
-(`aud`) is `sts.amazonaws.com`. The `sub` claim depends on the job:
+(`aud`) is `sts.amazonaws.com`. The `sub` claim depends on the job.
+
+In the table below, `<prefix>` is the start of the `sub` claim. Repositories
+made, renamed or moved on github.com after 2026-07-15 use the ID form,
+`repo:<owner>@<owner_id>/<repo>@<repo_id>`. A repository made from this
+template today uses this form. To get the IDs, run
+`gh api repos/<owner>/<repo> --jq '.owner.id, .id'`. Older repositories use
+the name form, `repo:<owner>/<repo>`, unless an admin turned on the ID form
+in the OIDC settings of the organization or repository.
 
 | Job | `sub` claim |
 | --- | --- |
-| Plan on a pull request | `repo:<owner>/<repo>:pull_request` |
-| Plan or destroy-plan on the default branch | `repo:<owner>/<repo>:ref:refs/heads/<default-branch>` |
-| Apply for a tier | `repo:<owner>/<repo>:environment:<tier>` (`develop`, `stage` or `prod`) |
-| Destroy | `repo:<owner>/<repo>:environment:destroy` |
+| Plan on a pull request | `<prefix>:pull_request` |
+| Plan or destroy-plan on the default branch | `<prefix>:ref:refs/heads/<default-branch>` |
+| Apply for a tier | `<prefix>:environment:<tier>` (`develop`, `stage` or `prod`) |
+| Destroy | `<prefix>:environment:destroy` |
+
+If the `sub` claim in the trust policy does not match, the "Get AWS
+credentials" step fails with "Not authorized to perform
+sts:AssumeRoleWithWebIdentity". Check the form first.
 
 A sample trust policy for a role in the prod tier:
 
@@ -273,10 +285,10 @@ A sample trust policy for a role in the prod tier:
         "StringEquals": {
           "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
           "token.actions.githubusercontent.com:sub": [
-            "repo:<owner>/<repo>:pull_request",
-            "repo:<owner>/<repo>:ref:refs/heads/<default-branch>",
-            "repo:<owner>/<repo>:environment:prod",
-            "repo:<owner>/<repo>:environment:destroy"
+            "repo:<owner>@<owner_id>/<repo>@<repo_id>:pull_request",
+            "repo:<owner>@<owner_id>/<repo>@<repo_id>:ref:refs/heads/<default-branch>",
+            "repo:<owner>@<owner_id>/<repo>@<repo_id>:environment:prod",
+            "repo:<owner>@<owner_id>/<repo>@<repo_id>:environment:destroy"
           ]
         }
       }
@@ -285,14 +297,17 @@ A sample trust policy for a role in the prod tier:
 }
 ```
 
-For a role in another tier, change `environment:prod` to the tier name.
+For a role in another tier, change `environment:prod` to the tier name. If
+your repository uses the name form, replace
+`repo:<owner>@<owner_id>/<repo>@<repo_id>` with `repo:<owner>/<repo>` in
+every `sub` value.
 
 > **Warning:** A pull request run uses the workflow files and `tf.sh` from the
 > pull request branch. So the `pull_request` `sub` gives the full role to every
 > person who can push a branch and open a pull request. That person can change
 > the plan job to run `tofu apply` with the prod role. The required
 > reviewers of `prod` and `destroy` do not stop this. If this matters to you,
-> remove `repo:<owner>/<repo>:pull_request` from the policy of prod roles. Pull
+> remove `<prefix>:pull_request` from the policy of prod roles. Pull
 > request plans for prod then fail. Another option is to give plan jobs a
 > separate read-only role. This is a known limit of the template, because it
 > uses one role per deployment for plan, apply and destroy.
@@ -317,7 +332,7 @@ For a role in another tier, change `environment:prod` to the tier name.
 > ```
 >
 > The `sub` of an apply job then also holds the branch, for example
-> `repo:<owner>/<repo>:environment:prod:ref:refs/heads/<default-branch>`. The
+> `<prefix>:environment:prod:ref:refs/heads/<default-branch>`. The
 > format changes for every job, so update every trust policy. Look at the
 > claims of a test run before you rely on them. Also protect the default
 > branch with a ruleset.
@@ -327,7 +342,7 @@ Some runs cannot get credentials:
 - Pull requests from forks get no OIDC token from GitHub. They run only the
   validate and setup jobs. No job that uses AWS runs.
 - A manual run on a branch that is not the default branch has the `sub`
-  claim `repo:<owner>/<repo>:ref:refs/heads/<branch>`. The sample policy does
+  claim `<prefix>:ref:refs/heads/<branch>`. The sample policy does
   not allow it, so its plan and destroy-plan jobs fail. Start manual runs on
   the default branch, or add that `sub` value to the policy.
 - A merge queue run (`merge_group`) runs only the validate and setup jobs. See
